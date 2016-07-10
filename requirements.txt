@@ -1,0 +1,4 @@
+jira==1.0.3
+pyexcel==0.2.0
+jenkinsapi==0.2.29
+

@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<com.tikal.jenkins.plugins.multijob.MultiJobProject plugin="jenkins-multijob-plugin@1.20">
+  <actions/>
+  <description/>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <jenkins.model.BuildDiscarderProperty>
+      <strategy class="hudson.tasks.LogRotator">
+        <daysToKeep>10</daysToKeep>
+        <numToKeep>30</numToKeep>
+        <artifactDaysToKeep>-1</artifactDaysToKeep>
+        <artifactNumToKeep>-1</artifactNumToKeep>
+      </strategy>
+    </jenkins.model.BuildDiscarderProperty>
+    <hudson.plugins.disk__usage.DiskUsageProperty plugin="disk-usage@0.28"/>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>revision</name>
+          <description/>
+          <defaultValue>origin/${gitlabSourceBranch}</defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <scm class="hudson.plugins.git.GitSCM" plugin="git@2.4.0">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <url>${JOB_CREATOR_GIT_URL}</url>
+        <credentialsId>6f7926e8-ad95-456e-917f-76d70f8af035</credentialsId>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>$revision</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <submoduleCfg class="list"/>
+    <extensions/>
+  </scm>
+  <assignedNode>master</assignedNode>
+  <canRoam>false</canRoam>
+  <disabled>false</disabled>
+  <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
+  <triggers>
+    <com.dabsquared.gitlabjenkins.GitLabPushTrigger plugin="gitlab-plugin@1.1.28">
+      <spec/>
+      <triggerOnPush>true</triggerOnPush>
+      <triggerOnMergeRequest>false</triggerOnMergeRequest>
+      <triggerOpenMergeRequestOnPush>never</triggerOpenMergeRequestOnPush>
+      <ciSkip>false</ciSkip>
+      <setBuildDescription>false</setBuildDescription>
+      <addNoteOnMergeRequest>true</addNoteOnMergeRequest>
+      <addCiMessage>true</addCiMessage>
+      <addVoteOnMergeRequest>false</addVoteOnMergeRequest>
+      <allowAllBranches>false</allowAllBranches>
+      <includeBranchesSpec>**</includeBranchesSpec>
+      <excludeBranchesSpec>dev-*</excludeBranchesSpec>
+      <acceptMergeRequestOnSuccess>false</acceptMergeRequestOnSuccess>
+    </com.dabsquared.gitlabjenkins.GitLabPushTrigger>
+  </triggers>
+  <concurrentBuild>false</concurrentBuild>
+  <builders>
+    <hudson.tasks.Shell>
+      <command>#!/bin/bash -x
+
+project="${JOB_CREATOR_PROJECT_NAME}"
+revision=$(git rev-parse HEAD)
+AUTHOR=$(git log --pretty=oneline --format='%H %ae' -1 | grep -E -o "\b[a-zA-Z0-9.-]+@[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+\b")
+
+echo "Generate env var for downstream jobs"
+echo "revision=${revision}" &gt; args
+echo "project=${project}" &gt;&gt; args 
+echo "UPSTREAM_INFO=(Started by &lt;a href=\"${BUILD_URL}\"&gt;${JOB_NAME} #${BUILD_NUMBER}&lt;/a&gt;)" &gt;&gt; args
+echo "PROJECT_NAME_LOCAL=${project}" &gt;&gt; args
+echo "PROJECT_VERSION_FOR_EMAIL=${revision}" &gt;&gt; args
+echo "RECIPIENT_LIST=${AUTHOR}" &gt;&gt; args
+echo "BRANCH_NAME=${GIT_BRANCH##origin/}" &gt;&gt; args
+
+echo "______________________________"
+
+echo "Generate env var for current job"
+echo "SCP_BUILDS_URL=http://builds/" &gt; vars
+echo "PROJECT_NAME_LOCAL=${project}" &gt;&gt; vars
+echo "PROJECT_VERSION_FOR_EMAIL=${revision}" &gt;&gt; vars
+echo "BRANCH_NAME=${GIT_BRANCH##origin/}" &gt;&gt; vars
+
+
+#check if a package exists
+if [ -n "${gitlabSourceBranch}" ]; then
+	scp_builds_url="http://builds"
+    project_url=${scp_builds_url}/${project}
+    package=${project}-${revision}.zip
+    package_url=${project_url}/${package}
+    
+    curl --output /dev/null --silent --head --fail "${package_url}"
+    ret=$?
+    if [ ${ret} -eq 0 ]; then
+        echo "file ${package_url} already exist"
+        echo "RUN=false" &gt;&gt; args
+    fi
+fi</command>
+    </hudson.tasks.Shell>
+    <EnvInjectBuilder plugin="envinject@1.92.1">
+      <info>
+        <propertiesFilePath>vars</propertiesFilePath>
+      </info>
+    </EnvInjectBuilder>
+    <com.tikal.jenkins.plugins.multijob.MultiJobBuilder>
+      <phaseName>Build</phaseName>
+      <phaseJobs>
+        <com.tikal.jenkins.plugins.multijob.PhaseJobsConfig>
+          <jobName>${JOB_CREATOR_BUILD_NAME}</jobName>
+          <currParams>false</currParams>
+          <exposedSCM>false</exposedSCM>
+          <disableJob>false</disableJob>
+          <parsingRulesPath/>
+          <maxRetries>0</maxRetries>
+          <enableRetryStrategy>false</enableRetryStrategy>
+          <enableCondition>false</enableCondition>
+          <abortAllJob>true</abortAllJob>
+          <condition/>
+          <configs>
+            <hudson.plugins.parameterizedtrigger.FileBuildParameters plugin="parameterized-trigger@2.30">
+              <propertiesFile>args</propertiesFile>
+              <failTriggerOnMissing>false</failTriggerOnMissing>
+              <useMatrixChild>false</useMatrixChild>
+              <onlyExactRuns>false</onlyExactRuns>
+            </hudson.plugins.parameterizedtrigger.FileBuildParameters>
+          </configs>
+          <killPhaseOnJobResultCondition>FAILURE</killPhaseOnJobResultCondition>
+          <buildOnlyIfSCMChanges>false</buildOnlyIfSCMChanges>
+        </com.tikal.jenkins.plugins.multijob.PhaseJobsConfig>
+      </phaseJobs>
+      <continuationCondition>SUCCESSFUL</continuationCondition>
+    </com.tikal.jenkins.plugins.multijob.MultiJobBuilder>
+    <com.tikal.jenkins.plugins.multijob.MultiJobBuilder>
+      <phaseName>Publish artifacts</phaseName>
+      <phaseJobs>
+        <com.tikal.jenkins.plugins.multijob.PhaseJobsConfig>
+          <jobName>${JOB_CREATOR_ARTIFACTS_NAME}</jobName>
+          <currParams>false</currParams>
+          <exposedSCM>false</exposedSCM>
+          <disableJob>false</disableJob>
+          <parsingRulesPath/>
+          <maxRetries>0</maxRetries>
+          <enableRetryStrategy>false</enableRetryStrategy>
+          <enableCondition>false</enableCondition>
+          <abortAllJob>true</abortAllJob>
+          <condition/>
+          <configs>
+            <hudson.plugins.parameterizedtrigger.FileBuildParameters plugin="parameterized-trigger@2.30">
+              <propertiesFile>args</propertiesFile>
+              <failTriggerOnMissing>false</failTriggerOnMissing>
+              <useMatrixChild>false</useMatrixChild>
+              <onlyExactRuns>false</onlyExactRuns>
+            </hudson.plugins.parameterizedtrigger.FileBuildParameters>
+          </configs>
+          <killPhaseOnJobResultCondition>FAILURE</killPhaseOnJobResultCondition>
+          <buildOnlyIfSCMChanges>false</buildOnlyIfSCMChanges>
+        </com.tikal.jenkins.plugins.multijob.PhaseJobsConfig>
+      </phaseJobs>
+      <continuationCondition>SUCCESSFUL</continuationCondition>
+    </com.tikal.jenkins.plugins.multijob.MultiJobBuilder>
+  </builders>
+  <publishers>
+    <hudson.plugins.ws__cleanup.WsCleanup plugin="ws-cleanup@0.28">
+      <deleteDirs>false</deleteDirs>
+      <skipWhenFailed>false</skipWhenFailed>
+      <cleanWhenSuccess>true</cleanWhenSuccess>
+      <cleanWhenUnstable>true</cleanWhenUnstable>
+      <cleanWhenFailure>true</cleanWhenFailure>
+      <cleanWhenNotBuilt>true</cleanWhenNotBuilt>
+      <cleanWhenAborted>true</cleanWhenAborted>
+      <notFailBuild>false</notFailBuild>
+      <cleanupMatrixParent>false</cleanupMatrixParent>
+      <externalDelete/>
+    </hudson.plugins.ws__cleanup.WsCleanup>
+    <jenkins.plugins.hipchat.HipChatNotifier plugin="hipchat@1.0.0">
+      <token>${JOB_CREATOR_HIP_CHAT_TOKEN}</token>
+      <room>${JOB_CREATOR_HIP_CHAT_ROOM}</room>
+      <notifications>
+        <jenkins.plugins.hipchat.model.NotificationConfig>
+          <notifyEnabled>true</notifyEnabled>
+          <textFormat>false</textFormat>
+          <notificationType>SUCCESS</notificationType>
+          <color>GREEN</color>
+          <messageTemplate>&lt;a href="$URL"&gt;${JOB_NAME} #${BUILD_NUMBER}&lt;/a&gt;&lt;br&gt;${STATUS} - ${BRANCH_NAME} (&lt;a href="http://scm/dev/${JOB_CREATOR_PROJECT_NAME}/commit/${PROJECT_VERSION_FOR_EMAIL}/"&gt;${PROJECT_VERSION_FOR_EMAIL}&lt;/a&gt;)&lt;br&gt;&lt;a href="${SCP_BUILDS_URL}/${PROJECT_NAME_LOCAL}/${PROJECT_NAME_LOCAL}-${PROJECT_VERSION_FOR_EMAIL}.zip"&gt;${PROJECT_NAME_LOCAL}-${PROJECT_VERSION_FOR_EMAIL}.zip&lt;/a&gt;</messageTemplate>
+        </jenkins.plugins.hipchat.model.NotificationConfig>
+        <jenkins.plugins.hipchat.model.NotificationConfig>
+          <notifyEnabled>true</notifyEnabled>
+          <textFormat>false</textFormat>
+          <notificationType>BACK_TO_NORMAL</notificationType>
+          <color>YELLOW</color>
+          <messageTemplate>&lt;a href="$URL"&gt;${JOB_NAME} #${BUILD_NUMBER}&lt;/a&gt;&lt;br&gt;${STATUS} - ${BRANCH_NAME} (&lt;a href="http://scm/dev/${JOB_CREATOR_PROJECT_NAME}/commit/${PROJECT_VERSION_FOR_EMAIL}/"&gt;${PROJECT_VERSION_FOR_EMAIL}&lt;/a&gt;)&lt;br&gt;&lt;a href="${SCP_BUILDS_URL}/${PROJECT_NAME_LOCAL}/${PROJECT_NAME_LOCAL}-${PROJECT_VERSION_FOR_EMAIL}.zip"&gt;${PROJECT_NAME_LOCAL}-${PROJECT_VERSION_FOR_EMAIL}.zip&lt;/a&gt;</messageTemplate>
+        </jenkins.plugins.hipchat.model.NotificationConfig>
+      </notifications>
+      <startJobMessage/>
+      <completeJobMessage/>
+    </jenkins.plugins.hipchat.HipChatNotifier>
+  </publishers>
+  <buildWrappers>
+    <org.jenkinsci.plugins.buildnamesetter.BuildNameSetter plugin="build-name-setter@1.1.1.1">
+      <template>${GIT_BRANCH}_#${BUILD_NUMBER}</template>
+    </org.jenkinsci.plugins.buildnamesetter.BuildNameSetter>
+  </buildWrappers>
+  <pollSubjobs>false</pollSubjobs>
+</com.tikal.jenkins.plugins.multijob.MultiJobProject>

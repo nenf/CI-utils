@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<matrix-project plugin="matrix-project@1.6">
+  <actions/>
+  <description/>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <jenkins.model.BuildDiscarderProperty>
+      <strategy class="hudson.tasks.LogRotator">
+        <daysToKeep>10</daysToKeep>
+        <numToKeep>30</numToKeep>
+        <artifactDaysToKeep>-1</artifactDaysToKeep>
+        <artifactNumToKeep>-1</artifactNumToKeep>
+      </strategy>
+    </jenkins.model.BuildDiscarderProperty>
+    <hudson.plugins.disk__usage.DiskUsageProperty plugin="disk-usage@0.28"/>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>PROJECT_NAME_LOCAL</name>
+          <description/>
+          <defaultValue>${JOB_CREATOR_PROJECT_NAME}</defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>FOLDER_OUT</name>
+          <description/>
+          <defaultValue>out</defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>FOLDER_ARTIFACTS</name>
+          <description/>
+          <defaultValue>artifacts</defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>SCP_BUILDS_URL</name>
+          <description/>
+          <defaultValue>http://builds/new</defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>RUN</name>
+          <description/>
+          <defaultValue>true</defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <scm class="hudson.scm.NullSCM"/>
+  <assignedNode>master</assignedNode>
+  <canRoam>false</canRoam>
+  <disabled>false</disabled>
+  <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
+  <triggers/>
+  <concurrentBuild>false</concurrentBuild>
+  <axes>
+    <hudson.matrix.LabelAxis>
+      <name>label</name>
+      <values>
+        <string>master</string>
+      </values>
+    </hudson.matrix.LabelAxis>
+  </axes>
+  <combinationFilter>RUN=="true"</combinationFilter>
+  <builders>
+    <hudson.plugins.copyartifact.CopyArtifact plugin="copyartifact@1.37">
+      <project>${JOB_CREATOR_BUILD_NAME}</project>
+      <filter/>
+      <target>${FOLDER_ARTIFACTS}/</target>
+      <excludes/>
+      <selector class="hudson.plugins.copyartifact.StatusBuildSelector"/>
+      <doNotFingerprintArtifacts>false</doNotFingerprintArtifacts>
+    </hudson.plugins.copyartifact.CopyArtifact>
+    <hudson.tasks.Shell>
+      <command>#!/bin/bash -x
+
+PROJECT_VERSION="$(cat &lt; $(find ${FOLDER_ARTIFACTS}/ | grep ${PROJECT_NAME_LOCAL}_version | head -1))"
+PROJECT_URL=${SCP_BUILDS_URL}/${PROJECT_NAME_LOCAL}
+PACKAGE=${PROJECT_NAME_LOCAL}-${PROJECT_VERSION}.zip
+PACKAGE_URL=${PROJECT_URL}/${PACKAGE}
+
+ALL_ARTIFATCTS=${WORKSPACE}/${FOLDER_OUT}/${PROJECT_NAME_LOCAL}
+
+if [ -z "${PROJECT_VERSION}" ]; then
+	echo "Var PROJECT_VERSION is not set"
+	exit 1
+fi
+echo ${PROJECT_VERSION} &gt; ${PROJECT_NAME_LOCAL}_version
+
+
+mkdir -p ${ALL_ARTIFATCTS} || exit -1
+for ARTIFACT in $(ls ${FOLDER_ARTIFACTS}); do
+	mv ${FOLDER_ARTIFACTS}/${ARTIFACT}/* ${ALL_ARTIFATCTS}/ || exit 1
+done
+
+
+curl --output /dev/null --silent --head --fail "${PACKAGE_URL}"
+ret=$?
+if [ ${ret} -eq 0 ]; then
+	curl -O ${PACKAGE_URL} || exit 1
+	unzip ${PACKAGE} || exit 1
+
+	for ARTIFATCT in $(ls "${ALL_ARTIFATCTS}"); do
+		if [ ! -d "${PROJECT_NAME_LOCAL}/${ARTIFATCT}" ]; then
+        	pushd ${WORKSPACE}/${FOLDER_OUT}
+			zip -r -g ${WORKSPACE}/${PACKAGE} ${PROJECT_NAME_LOCAL}/${ARTIFATCT} || exit 1
+            popd
+		fi
+	done
+else
+	cd ${WORKSPACE}/${FOLDER_OUT}/ &amp;&amp; zip -9 -r ${WORKSPACE}/${PROJECT_NAME_LOCAL}-${PROJECT_VERSION}.zip ./*
+fi
+</command>
+    </hudson.tasks.Shell>
+  </builders>
+  <publishers>
+    <be.certipost.hudson.plugin.SCPRepositoryPublisher plugin="scp@1.8">
+      <siteName>builds</siteName>
+      <entries>
+        <be.certipost.hudson.plugin.Entry>
+          <filePath>new/${PROJECT_NAME_LOCAL}</filePath>
+          <sourceFile>${PROJECT_NAME_LOCAL}-*.zip</sourceFile>
+          <keepHierarchy>false</keepHierarchy>
+        </be.certipost.hudson.plugin.Entry>
+      </entries>
+    </be.certipost.hudson.plugin.SCPRepositoryPublisher>
+    <hudson.plugins.ws__cleanup.WsCleanup plugin="ws-cleanup@0.28">
+      <deleteDirs>false</deleteDirs>
+      <skipWhenFailed>false</skipWhenFailed>
+      <cleanWhenSuccess>true</cleanWhenSuccess>
+      <cleanWhenUnstable>true</cleanWhenUnstable>
+      <cleanWhenFailure>true</cleanWhenFailure>
+      <cleanWhenNotBuilt>true</cleanWhenNotBuilt>
+      <cleanWhenAborted>true</cleanWhenAborted>
+      <notFailBuild>false</notFailBuild>
+      <cleanupMatrixParent>false</cleanupMatrixParent>
+      <externalDelete/>
+    </hudson.plugins.ws__cleanup.WsCleanup>
+    <jenkins.plugins.hipchat.HipChatNotifier plugin="hipchat@1.0.0">
+      <token>${JOB_CREATOR_HIP_CHAT_TOKEN}</token>
+      <room>${JOB_CREATOR_HIP_CHAT_ROOM}</room>
+      <notifications>
+        <jenkins.plugins.hipchat.model.NotificationConfig>
+          <notifyEnabled>true</notifyEnabled>
+          <textFormat>false</textFormat>
+          <notificationType>FAILURE</notificationType>
+          <color>RED</color>
+          <messageTemplate>&lt;a href="$URL"&gt;${JOB_NAME} #${BUILD_NUMBER}&lt;/a&gt; ${UPSTREAM_INFO}&lt;br&gt;${STATUS} - ${BRANCH_NAME} (&lt;a href="http://scm/dev/${JOB_CREATOR_PROJECT_NAME}/commit/${revision}/"&gt;${revision}&lt;/a&gt;)</messageTemplate>
+        </jenkins.plugins.hipchat.model.NotificationConfig>
+      </notifications>
+      <matrixTriggerMode>ONLY_PARENT</matrixTriggerMode>
+      <startJobMessage/>
+      <completeJobMessage/>
+    </jenkins.plugins.hipchat.HipChatNotifier>
+  </publishers>
+  <buildWrappers>
+    <hudson.plugins.ws__cleanup.PreBuildCleanup plugin="ws-cleanup@0.28">
+      <deleteDirs>false</deleteDirs>
+      <cleanupParameter/>
+      <externalDelete/>
+    </hudson.plugins.ws__cleanup.PreBuildCleanup>
+    <org.jenkinsci.plugins.buildnamesetter.BuildNameSetter plugin="build-name-setter@1.5.1">
+      <template>${BRANCH_NAME}_#${BUILD_NUMBER}</template>
+    </org.jenkinsci.plugins.buildnamesetter.BuildNameSetter>
+  </buildWrappers>
+  <executionStrategy class="hudson.matrix.DefaultMatrixExecutionStrategyImpl">
+    <runSequentially>false</runSequentially>
+  </executionStrategy>
+</matrix-project>
